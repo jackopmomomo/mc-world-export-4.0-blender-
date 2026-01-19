@@ -120,7 +120,7 @@ def load_entity(file: IO[str], context: Context, collection: Collection, materia
         mod.object = armature
 
     final_objects: list[Object]
-    
+
     if len(parsed_objs) > 0:
         if separate_parts:
             for obj in parsed_objs:
@@ -427,7 +427,7 @@ def parse_armature(model: ET.Element, context: Context, collection: Collection, 
         if 'len' in attrib.keys():
             length = float(attrib['len'])
         else:
-            length = '.16'
+            length = 0.16
 
         bone = edit_bones.new(name)
         bone.head = [0, 0, 0]
@@ -564,4 +564,3 @@ def parse_multipart(model: ET.Element,
     bpy.ops.object.mode_set(mode='OBJECT')
     obj.rotation_euler[0] = math.radians(90)
     return (obj, definition_order, meshes, seperate, override_channels)
-

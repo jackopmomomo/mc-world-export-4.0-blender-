@@ -19,6 +19,13 @@ def load(context: VCAPContext, name: str, file: IO[bytes]):
 
         uvs: BMLayerCollection = bm.loops.layers.uv
         uv_lay = uvs.active
+        
+        # If no active UV layer, skip UV processing
+        if uv_lay is None:
+            print(f"Warning: No active UV layer found for mesh {name}")
+            bm.free()
+            return meshes[0]
+            
         for i in range(1, len(meshes)):
             layer_uv = uvs.new(get_flayer_uv(i))
 

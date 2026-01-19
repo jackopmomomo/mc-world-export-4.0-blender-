@@ -20,6 +20,27 @@ NORMAL = 'Normal'
 
 VERTEX_COLOR = "$VERTEX_COLOR"
 
+def _find_node_by_type(node_tree: NodeTree, bl_idname: str):
+    """Find a node by its type (bl_idname) instead of localized name."""
+    for node in node_tree.nodes:
+        if node.bl_idname == bl_idname:
+            return node
+    return None
+
+def _clear_default_nodes(node_tree: NodeTree):
+    """Remove default Principled BSDF node, keeping Material Output."""
+    principled = _find_node_by_type(node_tree, 'ShaderNodeBsdfPrincipled')
+    if principled:
+        node_tree.nodes.remove(principled)
+
+def _get_or_create_output(node_tree: NodeTree):
+    """Get existing Material Output or create one if not found."""
+    output = _find_node_by_type(node_tree, 'ShaderNodeOutputMaterial')
+    if not output:
+        output = node_tree.nodes.new('ShaderNodeOutputMaterial')
+        output.location = (300, 0)
+    return output
+
 def load_texture(tex_id: str, context: VCAPContext, is_data=False):
     if tex_id in context.textures:
         return context.textures[tex_id]
@@ -33,7 +54,7 @@ def load_texture(tex_id: str, context: VCAPContext, is_data=False):
         filename = f'tex/{tex_id}.png'
     with context.archive.open(filename, 'r') as file:
         image = util.import_image(file, tex_id, is_data=is_data)
-    
+
     if anim_data is not None:
         # Attach anim data to image datablock
         image['anim_data'] = anim_data
@@ -62,28 +83,29 @@ def parse_raw(obj, name: str, image_provider: Callable[[str, bool], Union[Image,
         name (str): Material name
         image_provider (Callable[[str, bool], Image]): Function responsible for retrieving the material's textures.
     """
-    
+
     transparent: bool = False
     if 'transparent' in obj:
         transparent = obj['transparent']
-        
+
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
-    
+
     node_tree = mat.node_tree
-    
-    node_tree.nodes.remove(node_tree.nodes.get('Principled BSDF')) # The generator adds this
+
+    # Remove default Principled BSDF (use type lookup for localized Blender)
+    _clear_default_nodes(node_tree)
     frame, node, alpha = generate_nodes(obj, node_tree, image_provider, name)
-    
-    mat_output = node_tree.nodes.get('Material Output')
+
+    mat_output = _get_or_create_output(node_tree)
     node_tree.links.new(node.outputs[0], mat_output.inputs[0])
-    
+
     if ('blend_mode' in obj):
         mat.blend_method = str.upper(obj['blend_mode'])
     elif 'transparent' in obj and obj['transparent']:
         # Backwards compatibility
         mat.blend_method = 'HASHED'
-        
+
     return mat
 
 
@@ -99,7 +121,9 @@ def parse(obj, name: str, context: VCAPContext):
     mat.use_nodes = True
 
     node_tree = mat.node_tree
-    node_tree.nodes.remove(node_tree.nodes.get('Principled BSDF'))
+    
+    # Remove default Principled BSDF (use type lookup for localized Blender)
+    _clear_default_nodes(node_tree)
 
     group = bpy.data.node_groups.new(name, 'ShaderNodeTree')
     group_inputs = group.nodes.new('NodeGroupInput')
@@ -128,12 +152,12 @@ def parse(obj, name: str, context: VCAPContext):
 
     group_node = node_tree.nodes.new('ShaderNodeGroup')
     group_node.node_tree = group
-    material_output = node_tree.nodes.get('Material Output')
+    material_output = _get_or_create_output(node_tree)
     node_tree.links.new(group_node.outputs[0], material_output.inputs[0])
-    
+
     texcoord = node_tree.nodes.new('ShaderNodeTexCoord')
     texcoord.location = (-200, -0)
-    
+
     node_tree.links.new(texcoord.outputs[2], group_node.inputs[0])
 
     if ('blend_mode' in obj):
@@ -141,7 +165,7 @@ def parse(obj, name: str, context: VCAPContext):
     elif 'transparent' in obj and obj['transparent']:
         # Backwards compatibility
         mat.blend_method = 'HASHED'
-    
+
     mat.use_backface_culling = True
     return mat
 
@@ -164,12 +188,12 @@ def generate_nodes(obj, node_tree: NodeTree, image_provider: Callable[[str, bool
         node_tree (NodeTree): The node tree to add the nodes to.
         context (VCAPContext): The current Vcap context.
         name (str, optional): Name of the material. Defaults to 'vcap_mat'.
-    
+
     Returns:
         tuple[Node, Node]: (Node Frame, Output Node, Alpha Socket)
     """
-            
-    
+
+
     def parse_field(value, target: Node, index: int, is_data = False):
         if isinstance(value, numbers.Number):
             target.inputs[index].default_value = value
@@ -181,53 +205,53 @@ def generate_nodes(obj, node_tree: NodeTree, image_provider: Callable[[str, bool
             target.inputs[index].default_value = (value[0], value[1], value[2])
         else:
             print(f'Cannot add input with type {type(value)} from material {name}.')
-            
+
     def parse_image(id: str, is_data = False):
         tex_node: ShaderNodeTexImage = node_tree.nodes.new('ShaderNodeTexImage')
         image = image_provider(id, is_data)
         tex_node.image = image
         tex_node.interpolation = 'Closest'
         tex_node.parent = frame
-        
+
         # Animated texture
         if (image is not None) and ('anim_data' in image):
             anim_data = image['anim_data']
             spritesheetMaping: ShaderNodeGroup = node_tree.nodes.new('ShaderNodeGroup')
             spritesheetMaping.node_tree = node_groups.spritesheet_mapping()
-            
+
             spritesheetMaping.inputs[1].default_value = anim_data['frame_count']
-            
+
             node_tree.links.new(spritesheetMaping.outputs[0], tex_node.inputs[0])
-            
+
             # Extract scene fps
             render = bpy.context.scene.render
             fps = render.fps / render.fps_base
-            
+
             driver = spritesheetMaping.inputs[2].driver_add("default_value").driver
             driver.expression = f"frame * {anim_data['framerate'] / fps}"
             uv_output = spritesheetMaping.inputs[0]
         else:
             uv_output = tex_node.inputs[0]
 
-        
+
         if uv_input is not None:
             node_tree.links.new(uv_input, uv_output)
         else:
             # Spritesheet must have an input
             texcoord = node_tree.nodes.new("ShaderNodeTexCoord")
             node_tree.links.new(texcoord.outputs[2], uv_output)
-        
+
         return tex_node
 
     if 'overrides' in obj:
         overrides = obj['overrides']
     else:
         overrides = {}
-    
+
     # Backwards compatibility
     if 'useVertexColors' in obj and obj['useVertexColors']:
         overrides['color2'] = VERTEX_COLOR
-    
+
     def parse_override(id: str, target: Node, index: int, is_data = False):
         if (id == VERTEX_COLOR):
             node = node_tree.nodes.new('ShaderNodeVertexColor')
@@ -238,10 +262,10 @@ def generate_nodes(obj, node_tree: NodeTree, image_provider: Callable[[str, bool
             node.attribute_type = 'OBJECT'
             node.attribute_name = get_override_prop_name(id)
             node.parent = frame
-        
+
         node_tree.links.new(node.outputs[0], target.inputs[index])
         return node
-        
+
     def load_field(name: str, target: Node, index: int, is_data = False):
         if name in overrides:
             return parse_override(overrides[name], target, index)
@@ -254,29 +278,31 @@ def generate_nodes(obj, node_tree: NodeTree, image_provider: Callable[[str, bool
     frame = node_tree.nodes.new(type='NodeFrame')
 
     # Handle color 1 and color 2
-    mix = node_tree.nodes.new('ShaderNodeMixRGB')
+    # Blender 4.0+: ShaderNodeMixRGB replaced by ShaderNodeMix
+    mix = node_tree.nodes.new('ShaderNodeMix')
+    mix.data_type = 'RGBA'  # Set to color mode
     mix.blend_type = 'MULTIPLY'
-    mix.inputs[0].default_value = 1
-    mix.inputs[1].default_value = (1, 1, 1, 1)
-    mix.inputs[2].default_value = (1, 1, 1, 1)
+    mix.inputs['Factor'].default_value = 1
+    mix.inputs['A'].default_value = (1, 1, 1, 1)
+    mix.inputs['B'].default_value = (1, 1, 1, 1)
     mix.parent = frame
     mix.location = Vector((-300, 150))
 
     if 'color2_blend_mode' in obj:
         mix.blend_type = str.upper(obj['color2_blend_mode'])
 
-    node_tree.links.new(mix.outputs[0], principled_node.inputs[COLOR])
+    node_tree.links.new(mix.outputs['Result'], principled_node.inputs[COLOR])
 
-    color_tex = load_field('color', mix, 1, False)
-    load_field('color2', mix, 2, False)
-    
+    color_tex = load_field('color', mix, 'A', False)
+    load_field('color2', mix, 'B', False)
+
     load_field('roughness', principled_node, ROUGHNESS, True)
     load_field('metallic', principled_node, METALLIC, True)
     load_field('emission', principled_node, EMISSION, False)
     # This isn't TECHNICALLY a field, but implementing it as a field
     # makes it a superset of the spec, so it's fine.
     load_field('emission_strength', principled_node, EMISSION_STRENGTH, True)
-    
+
     if 'normal' in obj and isinstance(obj['normal'], str):
         normal = node_tree.nodes.new('ShaderNodeNormalMap')
         node_tree.links.new(normal.outputs[0], principled_node.inputs[NORMAL])
@@ -319,18 +345,18 @@ def create_composite_material(name: str, context: VCAPContext, mat1: str, mat2: 
     mat.use_nodes = True
 
     node_tree = mat.node_tree
-    node_tree.nodes.remove(node_tree.nodes.get('Principled BSDF'))
+    
+    # Remove default Principled BSDF (use type lookup for localized Blender)
+    _clear_default_nodes(node_tree)
 
     group = bpy.data.node_groups.new(name, 'ShaderNodeTree')
     group_inputs = group.nodes.new('NodeGroupInput')
     group_inputs.location = (-800, 0)
-    # group.inputs.new(name='UV', type='NodeSocketVector')
     group.interface.new_socket("UV", in_out='INPUT', socket_type='NodeSocketVector')
 
     group_outputs = group.nodes.new('NodeGroupOutput')
     group_outputs.location = (300, 0)
 
-    # group.outputs.new(name='Shader', type='NodeSocketShader')
     group.interface.new_socket("Shader", in_out='OUTPUT', socket_type='NodeSocketShader')
 
     mix = group.nodes.new('ShaderNodeMixShader')
@@ -358,30 +384,9 @@ def create_composite_material(name: str, context: VCAPContext, mat1: str, mat2: 
 
     group_node = node_tree.nodes.new('ShaderNodeGroup')
     group_node.node_tree = group
-    material_output = node_tree.nodes.get('Material Output')
+    material_output = _get_or_create_output(node_tree)
     node_tree.links.new(group_node.outputs[0], material_output.inputs[0])
 
     context.material_groups[name] = group
 
-    # mat0 = context.raw_materials[mats[0]]
-    # frame0, node0, tex = generate_nodes(mat0, node_tree, context, mats[0])
-
-    # frame0.location = frame0.location + Vector((-600, -500))
-    # node_tree.links.new(node0.outputs[0], mix.inputs[1])
-
-    # mat1 = context.raw_materials[mats[1]]
-    # frame1, node1, color_tex = generate_nodes(mat1, node_tree, context, mats[1], 'flayer_1')
-
-    # frame1.location = frame1.location + Vector((-600, 500))
-    # node_tree.links.new(node1.outputs[0], mix.inputs[2])
-    # if color_tex:
-    #     node_tree.links.new(color_tex.outputs[1], mix.inputs[0])
-
-    # nodes.clear()
-
     return mat
-
-    # for layer in args:
-    #     layer_out = layer.node_tree.nodes.get('Material Output')
-    #     base_node = layer_out.inputs[0].links[0].from_node
-    #     layer.node_tree.nodes[0].cop

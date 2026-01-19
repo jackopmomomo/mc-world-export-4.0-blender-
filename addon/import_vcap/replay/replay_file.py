@@ -88,10 +88,10 @@ class ExecutionHandle:
 
     def feedback(self, message: str):
         self.__onFeedback(message)
-    
+
     def warn(self, message: str):
         self.__onWarning(message)
-    
+
     def error(self, message: str):
         self.__onError(message)
 
@@ -106,7 +106,7 @@ def load_replay(file: Union[str, IO[bytes]],
         import pstats
         pr = cProfile.Profile()
         pr.enable()
-    
+
     textures: dict[str, Image] = {}
     materials: dict[str, Material] = {}
 
@@ -151,7 +151,7 @@ def load_replay(file: Union[str, IO[bytes]],
             if filename not in archive.namelist():
                 handle.warn(f'{tex_name} missing from replay archive!')
                 return None
-            
+
             with archive.open(filename) as file:
                 image = util.import_image(file, os.path.basename(tex_name), is_data=is_data)
                 textures[tex_name] = image

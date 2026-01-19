@@ -14,14 +14,14 @@ def add_mesh(mesh1: BMesh, mesh2: Mesh, matrix: Matrix=Matrix.Identity(4), color
         mesh2 (Mesh): The mesh to add.
         offset (Sequence[float, float, float]): Offset vector
     """
-    if not COLOR_LAYER in mesh2.vertex_colors:
-        mesh2.vertex_colors.new(name=COLOR_LAYER)
+    # Blender 4.0+: use color_attributes instead of deprecated vertex_colors
+    if not COLOR_LAYER in mesh2.color_attributes:
+        mesh2.color_attributes.new(name=COLOR_LAYER, type='BYTE_COLOR', domain='CORNER')
     
-    vcolors = mesh2.vertex_colors[COLOR_LAYER]
-    i = 0
+    vcolors = mesh2.color_attributes[COLOR_LAYER]
     for poly in mesh2.polygons.values():
         for idx in poly.loop_indices:
-            vcolors.data[idx].color = (color[0], color[1], color[2], color[3])
+            vcolors.data[idx].color_srgb = (color[0], color[1], color[2], color[3])
 
     mesh2.transform(matrix)
     mesh1.from_mesh(mesh2)

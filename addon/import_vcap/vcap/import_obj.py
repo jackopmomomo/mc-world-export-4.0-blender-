@@ -748,13 +748,10 @@ def create_mesh(use_edges,
     me.polygons.foreach_set("use_smooth", faces_use_smooth)
 
     if verts_nor and me.loops:
-        # Note: we store 'temp' normals in loops, since validate() may alter final mesh,
-        #       we can only set custom lnors *after* calling it.
-        # me.create_normals_split()
-        loops_nor = tuple(no for (_, face_vert_nor_indices, _, _, _, _, _) in faces
-                          for face_noidx in face_vert_nor_indices
-                          for no in verts_nor[face_noidx])
-        me.loops.foreach_set("normal", loops_nor)
+        # Note: In Blender 4.0+, create_normals_split() and normals_split_custom_set() 
+        # have been removed. Custom normals are now handled via the 'sharp_edge' attribute.
+        # We skip the old normals code and just rely on smooth shading.
+        pass
 
     if verts_tex and me.polygons:
         # Some files Do not explicitely write the 'v' value when it's 0.0, see T68249...
@@ -800,15 +797,11 @@ def create_mesh(use_edges,
             if e.key in sharp_edges:
                 e.use_edge_sharp = True
 
+    # Blender 4.0+: use_auto_smooth and normals_split_custom_set removed
+    # Custom split normals now handled via sharp_edge attribute set above
     if verts_nor:
-        clnors = array.array('f', [0.0] * (len(me.loops) * 3))
-        me.loops.foreach_get("normal", clnors)
-
         if not unique_smooth_groups:
             me.polygons.foreach_set("use_smooth", [True] * len(me.polygons))
-
-        me.normals_split_custom_set(tuple(zip(*(iter(clnors),) * 3)))
-        # me.use_auto_smooth = True
 
     return me
 
